@@ -1,0 +1,6 @@
+pandas
+langchain-groq
+langchain-community
+langchain
+python-dotenv
+requests

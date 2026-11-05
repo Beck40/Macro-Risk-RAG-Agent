@@ -1,0 +1,4 @@
+*.csv
+*.db
+*.pkl
+__pycache__/
