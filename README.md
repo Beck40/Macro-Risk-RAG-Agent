@@ -9,7 +9,7 @@ Macroeconomic research is valuable only when analysts can retrieve evidence quic
 ```text
 Macro-Risk-RAG-Agent/
 ├── assets/
-│   └── charts/                         # Insolvency trend visuals
+│   └── charts/                         # RAG governance and macro-risk visuals
 ├── data/                               # Government extracts and vector-store data
 ├── docs/
 │   ├── GenAI Financial Analyst - Technical Guide.pdf
@@ -37,10 +37,10 @@ python -m src.generate_charts
 
 The public insolvency extracts and vector-store database are retained under `data/` for local analysis.
 
-![Company insolvency trend](assets/charts/01_company_insolvency_trend.png)
+![RAG faithfulness versus context precision evaluation](assets/charts/01_company_insolvency_trend.png)
 
-Company insolvency trends provide a measurable macro-risk transmission channel from rates and demand into credit losses. Keeping the source series visible alongside the RAG workflow supports challenge, provenance review and separation of retrieved evidence from generated interpretation.
+The RAGAS-style benchmark compares baseline and hybrid retrieval across 50 test queries, with the top-right shaded region identifying the production governance zone.
 
-![Individual insolvency trend](assets/charts/02_individual_insolvency_trend.png)
+![Macroeconomic stress and insolvency regime overlay](assets/charts/02_individual_insolvency_trend.png)
 
-Individual insolvency trends add household stress to the same decision frame. Comparing the two series helps analysts separate corporate and consumer deterioration, improving scenario design while preserving a clear audit trail for the evidence behind the narrative.
+The macro overlay compares indexed corporate and individual insolvency pressure with shaded Bank of England tightening regimes and the RAG early-warning threshold.
