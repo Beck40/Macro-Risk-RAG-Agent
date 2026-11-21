@@ -1,103 +1,123 @@
 import os
-from pydantic import SecretStr
+from functools import lru_cache
+from pathlib import Path
+
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
-from langchain_classic.chains import RetrievalQA
-from langchain_classic.prompts import PromptTemplate
 
-# --- CONFIGURATION ---
-API_KEY = input("Enter your GROQ API key: ")
-DB_PATH = "C:\\Users\\beckk\\Documents\\Python\\GenAI_DB"
+from src.config import get_settings
+
+
+@lru_cache
+def get_embedding_model(model_name: str):
+    return HuggingFaceEmbeddings(model_name=model_name)
+
+
+class RAGService:
+    def __init__(self, db_dir=None):
+        self.settings = get_settings()
+        self.db_dir = Path(db_dir) if db_dir is not None else self.settings.chroma_db_dir
+
+    def vector_store_ready(self) -> bool:
+        if not self.db_dir.is_dir():
+            return False
+        return (self.db_dir / "chroma.sqlite3").is_file()
+
+    def query_documents(self, question: str) -> dict:
+        if not question or not question.strip():
+            raise ValueError("Question cannot be empty.")
+        if self.settings.groq_api_key is None:
+            raise ValueError("GROQ_API_KEY is not set.")
+        if not self.vector_store_ready():
+            raise FileNotFoundError("Vector store is not available.")
+
+        embedding_model = get_embedding_model(self.settings.embedding_model)
+        vector_db = Chroma(
+            persist_directory=str(self.db_dir),
+            embedding_function=embedding_model,
+        )
+        llm = ChatGroq(
+            model=self.settings.llm_model,
+            temperature=0,
+            api_key=self.settings.groq_api_key,
+        )
+
+        prompt = ChatPromptTemplate.from_template(
+            """You are a Senior Financial Analyst with expertise in analyzing financial documents.
+Analyze the provided context carefully and answer the question in detail.
+If the answer is not in the context, say "I cannot find that information in the documents."
+
+CONTEXT:
+{context}
+
+QUESTION:
+{question}
+
+DETAILED ANSWER:"""
+        )
+        retriever = vector_db.as_retriever(search_kwargs={"k": 7})
+
+        def format_documents(documents):
+            return "\n\n".join(document.page_content for document in documents)
+
+        documents = retriever.invoke(question)
+        chain = prompt | llm | StrOutputParser()
+        answer = chain.invoke(
+            {
+                "context": format_documents(documents),
+                "question": question,
+            }
+        )
+
+        sources = []
+        seen_sources = set()
+        for document in documents:
+            source = str(document.metadata.get("source", "Unknown"))
+            page = document.metadata.get("page")
+            filename = os.path.basename(source) if "://" not in source else source
+            citation = {"source": filename}
+            if page is not None:
+                citation["page"] = int(page)
+            key = (citation["source"], citation.get("page"))
+            if key not in seen_sources:
+                seen_sources.add(key)
+                sources.append(citation)
+
+        return {"answer": answer, "sources": sources}
+
+
+def query_documents(question: str, db_dir=None) -> dict:
+    return RAGService(db_dir=db_dir).query_documents(question)
+
 
 def start_rag_agent():
-    # 1. Safety Check: Does the DB exist?
-    if not os.path.exists(DB_PATH):
-        print(f"\n Error: Database folder '{DB_PATH}' not found.")
-        print(" Run 'python ingest.py' first to load your data.\n")
-        return
-
-    print("--- LOADING INTELLIGENCE ---")
-    
-    # CRITICAL: Must use the EXACT same model as ingest.py
-    embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    
-    # Load the Vector Database
-    vector_db = Chroma(persist_directory=DB_PATH, embedding_function=embedding_model)
-    
-    # Initialize Llama 3 (The Brain)
-    llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0, api_key=SecretStr(API_KEY))
-
-    # The "Senior Analyst" Persona
-    # This prompt forces the AI to be professional and admit when it doesn't know.
-    custom_prompt = PromptTemplate(
-        template="""You are a Senior Financial Analyst with expertise in analyzing financial documents.
-        Analyze the provided context carefully and answer the question in detail.
-        If you find relevant information, explain it thoroughly with specific figures and details.
-        If the answer is not in the context, say "I cannot find that information in the documents."
-        
-        CONTEXT:
-        {context}
-        
-        QUESTION: {question}
-        
-        DETAILED ANSWER:""",
-        input_variables=["context", "question"]
-    )
-
-    # Create the Retrieval Chain
-    qa_chain = RetrievalQA.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=vector_db.as_retriever(search_kwargs={"k": 7}), # Increased to retrieve more relevant chunks
-        return_source_documents=True, # <--- Required for Citations
-        chain_type_kwargs={"prompt": custom_prompt}
-    )
-
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print(" FINANCIAL INSIGHT ENGINE (Ready)")
-    print("="*50)
+    print("=" * 50)
     print("Type 'exit' to quit.\n")
-    
-    # The Chat Loop
+
     while True:
         query = input("Query: ")
-        if query.lower() in ["exit", "quit"]: 
+        if query.lower() in ["exit", "quit"]:
             break
-        
+
         print("\n Searching documents...")
         try:
-            # Ask the AI
-            res = qa_chain.invoke({"query": query})
-            
-            # Print the Answer
-            print(f"\nAgent: {res['result']}\n")
-            
-            # Print the Citations (The "Senior" Feature)
+            result = query_documents(query)
+            print(f"\nAgent: {result['answer']}\n")
             print("--- Sources ---")
-            seen_sources = set()
-            for doc in res['source_documents']:
-                # Extract metadata carefully
-                source = doc.metadata.get('source', 'Unknown')
-                page = doc.metadata.get('page', None)
-                
-                # Format citation nicely
-                if "http" in source:
-                    citation = f" {source}"
-                else:
-                    filename = os.path.basename(source)
-                    citation = f" {filename}"
-                    if page is not None:
-                        citation += f" (Page {page + 1})" # +1 because code counts from 0
-                
-                # Avoid duplicate prints
-                if citation not in seen_sources:
-                    print(citation)
-                    seen_sources.add(citation)
+            for source in result["sources"]:
+                citation = f" {source['source']}"
+                if source.get("page") is not None:
+                    citation += f" (Page {source['page']})"
+                print(citation)
             print("-" * 20 + "\n")
-            
-        except Exception as e:
-            print(f" Error: {e}")
+        except Exception as exc:
+            print(f" Error: {exc}")
+
 
 if __name__ == "__main__":
     start_rag_agent()

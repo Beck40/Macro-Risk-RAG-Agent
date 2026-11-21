@@ -1,14 +1,15 @@
 import os
-import shutil   
-import fitz 
+import shutil
+from pathlib import Path
 from typing import cast
+
+import fitz
 from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-
-DB_PATH = "C:\\Users\\beckk\\Documents\\Python\\GenAI_DB"
+from src.config import get_settings
 
 def ingest_pdf(file_path):
     """Load and process a local PDF file"""
@@ -49,45 +50,49 @@ def ingest_pdf(file_path):
         return None
 
 
-def create_vector_db(documents):
-    """Split documents and create vector database."""
+def create_vector_db(documents, db_dir=None, reset=False) -> int:
+    """Split documents and append them to a Chroma vector database."""
     try:
         print("\n--- PROCESSING DOCUMENTS ---")
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1500,  # Increased for better context retention
-            chunk_overlap=400  # Increased overlap to preserve context across boundaries
+            chunk_size=1500,
+            chunk_overlap=400,
         )
         chunks = text_splitter.split_documents(documents)
-        
-        # Enhance metadata with page range tracking
+
         for chunk in chunks:
-            # Store original page info
-            if 'page' not in chunk.metadata:
-                chunk.metadata['page'] = 1
-        
+            chunk.metadata.setdefault("page", 1)
+
         print(f"Created {len(chunks)} chunks")
-        
+
         print("Initializing embedding model...")
+        settings = get_settings()
         embedding_model = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2"
+            model_name=settings.embedding_model
         )
-        
-        # Remove existing database if it exists
-        if os.path.exists(DB_PATH):
-            print(f"Removing existing database...")
-            shutil.rmtree(DB_PATH)
-        
-        print("Creating vector database...")
-        Chroma.from_documents(
-            documents=chunks,
-            embedding=embedding_model,
-            persist_directory=DB_PATH
+
+        directory = Path(db_dir) if db_dir is not None else settings.chroma_db_dir
+        directory.parent.mkdir(parents=True, exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=True)
+
+        if reset and directory.exists():
+            shutil.rmtree(directory)
+            directory.mkdir(parents=True, exist_ok=True)
+
+        vector_db = Chroma(
+            persist_directory=str(directory),
+            embedding_function=embedding_model,
         )
-        
-        print(f"SUCCESS! Database created with {len(chunks)} chunks in '{DB_PATH}' folder")
-        
+        vector_db.add_documents(chunks)
+
+        print(
+            f"SUCCESS! Indexed {len(chunks)} chunks in '{directory}'"
+        )
+        return len(chunks)
+
     except Exception as e:
         print(f"Error creating database: {str(e)}")
+        return 0
 
 def main():
     print("=" * 50)

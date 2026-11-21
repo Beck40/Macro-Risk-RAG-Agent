@@ -2,45 +2,71 @@
 
 ## Objective
 
-Macroeconomic research is valuable only when analysts can retrieve evidence quickly and cite it. This retrieval-augmented agent ingests financial PDFs, retrieves relevant passages and produces source-aware answers for risk committees, portfolio managers and scenario teams. The project focuses on evidence traceability: generated analysis should remain anchored to the documents supplied to the system.
+Macroeconomic research is valuable only when analysts can retrieve evidence quickly and cite it. This repository provides a PDF retrieval-augmented agent for risk committees, portfolio managers and scenario teams. It ingests financial PDFs, retrieves relevant passages and produces source-aware answers while preserving page-level traceability.
 
 ## Architecture
 
 ```text
 Macro-Risk-RAG-Agent/
-├── assets/
-│   └── charts/                         # RAG governance and macro-risk visuals
-├── data/                               # Government extracts and vector-store data
+├── .env.example
+├── .github/
+│   └── workflows/
+│       └── ci.yml                     # pytest checks for pushes and pull requests
+├── data/
+│   └── .gitkeep
 ├── docs/
-│   ├── GenAI Financial Analyst - Technical Guide.pdf
-│   └── Macro Risk AI Agent - Deployment Guide.pdf
+│   └── GenAI Financial Analyst - Technical Guide.pdf
 ├── infrastructure/
-│   ├── Dockerfile
-│   └── docker/analyst
-├── notebooks/
-│   └── Macro_Risk_Analyst.ipynb
+│   └── Dockerfile                     # Azure Container Apps-compatible image
 ├── src/
-│   ├── rag_ingest.py                   # PDF extraction and vector indexing
-│   ├── rag_agent.py                    # Retrieval, prompting and citations
-│   └── generate_charts.py              # Insolvency trend charts
+│   ├── api.py                         # FastAPI health, ingest and query endpoints
+│   ├── config.py                      # Central pydantic-settings configuration
+│   ├── rag_ingest.py                  # PDF extraction and vector indexing
+│   ├── rag_agent.py                   # Retrieval chain and source citations
+│   └── __init__.py
 └── tests/
+    └── test_api.py
+```
+
+## Environment setup
+
+Create or update a local `.env` from `.env.example`. Docker and Azure environment variables take precedence over `.env` values.
+
+```env
+GROQ_API_KEY=your_groq_api_key
+CHROMA_DB_DIR=data/chroma_db
+EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+LLM_MODEL=llama-3.1-8b-instant
 ```
 
 ## Quickstart
 
+Install dependencies and start the API locally:
+
 ```bash
 pip install -r requirements.txt
-python src/rag_ingest.py
-python src/rag_agent.py
-python -m src.generate_charts
+uvicorn src.api:app --reload
 ```
 
-The public insolvency extracts and vector-store database are retained under `data/` for local analysis.
+Ingest a PDF directly from a local path:
 
-![RAG faithfulness versus context precision evaluation](assets/charts/01_company_insolvency_trend.png)
+```bash
+python -m src.rag_ingest
+```
 
-The RAGAS-style benchmark compares baseline and hybrid retrieval across 50 test queries, with the top-right shaded region identifying the production governance zone.
+Build and run the container:
 
-![Macroeconomic stress and insolvency regime overlay](assets/charts/02_individual_insolvency_trend.png)
+```bash
+docker build -f infrastructure/Dockerfile -t macro-risk-rag .
+docker run --rm -p 8000:8000 --env-file .env macro-risk-rag
+```
 
-The macro overlay compares indexed corporate and individual insolvency pressure with shaded Bank of England tightening regimes and the RAG early-warning threshold.
+The API is available at `http://localhost:8000`.
+
+## API endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/health` | Reports API status and whether a vector store is available |
+| `POST` | `/ingest` | Accepts `{"file_path": ".../report.pdf", "reset": false}` and indexes the PDF |
+| `POST` | `/query` | Answers a question using retrieved PDF context and page citations |
