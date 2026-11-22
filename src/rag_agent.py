@@ -35,19 +35,12 @@ class RAGService:
             raise FileNotFoundError("Vector store is not available.")
 
         embedding_model = get_embedding_model(self.settings.embedding_model)
-        vector_db = Chroma(
-            persist_directory=str(self.db_dir),
-            embedding_function=embedding_model,
-        )
-        llm = ChatGroq(
-            model=self.settings.llm_model,
-            temperature=0,
-            api_key=self.settings.groq_api_key,
-        )
+        vector_db = Chroma(persist_directory=str(self.db_dir), embedding_function=embedding_model)
+        llm = ChatGroq(model=self.settings.llm_model, temperature=0, api_key=self.settings.groq_api_key)
 
         prompt = ChatPromptTemplate.from_template(
-            """You are a Senior Financial Analyst with expertise in analyzing financial documents.
-Analyze the provided context carefully and answer the question in detail.
+            """You are a Senior Financial Analyst with expertise in analysing financial documents.
+Analyse the provided context carefully and answer the question in detail.
 If the answer is not in the context, say "I cannot find that information in the documents."
 
 CONTEXT:
@@ -59,24 +52,15 @@ QUESTION:
 DETAILED ANSWER:"""
         )
         retriever = vector_db.as_retriever(search_kwargs={"k": 7})
-
-        def format_documents(documents):
-            return "\n\n".join(document.page_content for document in documents)
-
-        documents = retriever.invoke(question)
+        retrieved_docs = retriever.invoke(question)
         chain = prompt | llm | StrOutputParser()
-        answer = chain.invoke(
-            {
-                "context": format_documents(documents),
-                "question": question,
-            }
-        )
+        answer = chain.invoke({"context": "\n\n".join(doc.page_content for doc in retrieved_docs), "question": question})
 
         sources = []
         seen_sources = set()
-        for document in documents:
-            source = str(document.metadata.get("source", "Unknown"))
-            page = document.metadata.get("page")
+        for doc in retrieved_docs:
+            source = str(doc.metadata.get("source", "Unknown"))
+            page = doc.metadata.get("page")
             filename = os.path.basename(source) if "://" not in source else source
             citation = {"source": filename}
             if page is not None:

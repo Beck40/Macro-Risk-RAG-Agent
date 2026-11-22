@@ -18,10 +18,7 @@ def test_health_returns_status_without_live_configuration():
         response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "status": "ok",
-        "vector_db_ready": False,
-    }
+    assert response.json() == {"status": "ok", "vector_db_ready": False}
 
 
 def test_query_uses_mocked_rag_service():
@@ -47,13 +44,8 @@ def test_ingest_indexes_valid_pdf(tmp_path):
     pdf_path = tmp_path / "report.pdf"
     pdf_path.write_bytes(b"%PDF-1.4")
 
-    with patch("src.api.ingest_pdf", return_value=["document"]), patch(
-        "src.api.create_vector_db", return_value=12
-    ) as create_db:
-        response = client.post(
-            "/ingest",
-            json={"file_path": str(pdf_path), "reset": False},
-        )
+    with patch("src.api.ingest_pdf", return_value=["document"]), patch("src.api.create_vector_db", return_value=12) as create_db:
+        response = client.post("/ingest", json={"file_path": str(pdf_path), "reset": False})
 
     assert response.status_code == 200
     assert response.json() == {"filename": "report.pdf", "chunks_indexed": 12}
@@ -61,10 +53,7 @@ def test_ingest_indexes_valid_pdf(tmp_path):
 
 
 def test_ingest_rejects_non_pdf_paths():
-    response = client.post(
-        "/ingest",
-        json={"file_path": "notes.txt"},
-    )
+    response = client.post("/ingest", json={"file_path": "notes.txt"})
 
     assert response.status_code == 400
     assert "PDF" in response.json()["detail"]
@@ -73,10 +62,7 @@ def test_ingest_rejects_non_pdf_paths():
 def test_ingest_returns_404_for_missing_pdf(tmp_path):
     missing_pdf = tmp_path / "missing.pdf"
 
-    response = client.post(
-        "/ingest",
-        json={"file_path": str(missing_pdf)},
-    )
+    response = client.post("/ingest", json={"file_path": str(missing_pdf)})
 
     assert response.status_code == 404
     assert "not found" in response.json()["detail"].lower()

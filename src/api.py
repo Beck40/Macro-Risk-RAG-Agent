@@ -21,11 +21,8 @@ class IngestRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    service = RAGService()
-    return {
-        "status": "ok",
-        "vector_db_ready": service.vector_store_ready(),
-    }
+    rag_service = RAGService()
+    return {"status": "ok", "vector_db_ready": rag_service.vector_store_ready()}
 
 
 @app.post("/ingest")
@@ -45,29 +42,20 @@ def ingest(request: IngestRequest):
     if chunks_indexed == 0:
         raise HTTPException(status_code=500, detail="No chunks could be indexed.")
 
-    return {
-        "filename": pdf_path.name,
-        "chunks_indexed": chunks_indexed,
-    }
+    return {"filename": pdf_path.name, "chunks_indexed": chunks_indexed}
 
 
 @app.post("/query")
 def query(request: QueryRequest):
-    service = RAGService()
+    rag_service = RAGService()
 
-    if not service.vector_store_ready():
-        raise HTTPException(
-            status_code=503,
-            detail="Vector store is not available. Ingest a PDF first.",
-        )
-    if service.settings.groq_api_key is None:
-        raise HTTPException(
-            status_code=503,
-            detail="GROQ_API_KEY is not configured.",
-        )
+    if not rag_service.vector_store_ready():
+        raise HTTPException(status_code=503, detail="Vector store is not available. Ingest a PDF first.")
+    if rag_service.settings.groq_api_key is None:
+        raise HTTPException(status_code=503, detail="GROQ_API_KEY is not configured.")
 
     try:
-        return service.query_documents(request.question)
+        return rag_service.query_documents(request.question)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
